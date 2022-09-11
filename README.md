@@ -13,7 +13,11 @@ Two approaches are used to get the player as close as possible to live:
 - For large amounts of latency compensation a time jump occurs. This is visible and can be jarring to the viewer.
 - For smaller amounts of latency compensation the playback speed is increased to reach the target latency. This can result in odd audio artifacts, primarily when the content is music heavy, but often times it's not noticeable.
 
-### Requirements
+### Video generation requirements
+
+Your HLS media playlist must support `EXT-X-PROGRAM-DATE-TIME` tags. Without these tags there's no way to know when the segment was generated, therefore no way to know how much latency there is. For `ffmpeg` add `program_date_time` to [`hls_flags`](https://ffmpeg.org/ffmpeg-formats.html).
+
+### Video playback requirements
 
 - The speed a viewer is consuming video into the player must be fast enough to allow faster than realtime playback. The latency compensator keeps an eye on the download speed and the amount of already buffered video when making decisions on if, and how much, latency can be compensated for.
 - The smaller the segment duration is, the lower you can get your latency.
