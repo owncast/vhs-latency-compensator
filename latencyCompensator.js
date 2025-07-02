@@ -27,25 +27,25 @@ How to help with this? The Owncast Latency Compensator will:
   - Completely give up on all compensation if too many buffering events occur.
 */
 
-const REBUFFER_EVENT_LIMIT = 4; // Reduced from 4 - Max number of buffering events before we stop compensating for latency.
-const MIN_BUFFER_DURATION = 200; // Reduced from 200 - Min duration a buffer event must last to be counted.
+const REBUFFER_EVENT_LIMIT = 4; // Max number of buffering events before we stop compensating for latency.
+const MIN_BUFFER_DURATION = 200; // Min duration a buffer event must last to be counted.
 const MAX_SPEEDUP_RATE = 1.08; // The max playback rate when compensating for latency.
 const MAX_SPEEDUP_RAMP = 0.005; // The max amount we will increase the playback rate at once.
-const TIMEOUT_DURATION = 30 * 1000; // Increased from 30s - The amount of time we stop handling latency after certain events.
-const CHECK_TIMER_INTERVAL = 3 * 1000; // Increased from 1s - How often we check if we should be compensating for latency.
-const SPEED_ADJUSTMENT_INTERVAL = 1 * 1000; // New - How often to make micro speed adjustments
-const BUFFERING_AMNESTY_DURATION = 4 * 1000 * 60; // Increased from 3min - How often until a buffering event expires.
-const REQUIRED_BANDWIDTH_RATIO = 2.0; // Increased from 1.5 - The player:bitrate ratio required to enable compensating for latency.
-const HIGHEST_LATENCY_SEGMENT_LENGTH_MULTIPLIER = 2.2; // Increased from 2.2 - Segment length * this value is when we start compensating.
-const LOWEST_LATENCY_SEGMENT_LENGTH_MULTIPLIER = 1.7; // Increased from 1.8 - Segment length * this value is when we stop compensating.
-const MIN_LATENCY = 4 * 1000; // Increased from 4s - The absolute lowest we'll continue compensation to be running at.
-const MAX_LATENCY = 15 * 1000; // Increased from 15s - The absolute highest we'll allow a target latency to be before we start compensating.
-const MAX_JUMP_LATENCY = 5 * 1000; // Increased from 5s - How much behind the max latency we need to be behind before we allow a jump.
-const MAX_JUMP_FREQUENCY = 20 * 1000; // Increased from 20s - How often we'll allow a time jump.
-const MAX_ACTIONABLE_LATENCY = 90 * 1000; // Increased from 80s - If latency is seen to be greater than this then something is wrong.
-const STARTUP_WAIT_TIME = 20 * 1000; // Increased from 10s - The amount of time after we start up that we'll allow monitoring to occur.
-const MIN_BUFFER_HEALTH = 5; // New - Minimum seconds of healthy buffer before taking action
-const CONSECUTIVE_STABLE_CHECKS = 3; // New - How many stable checks before allowing speed changes
+const TIMEOUT_DURATION = 30 * 1000; // The amount of time we stop handling latency after certain events.
+const CHECK_TIMER_INTERVAL = 3 * 1000; // How often we check if we should be compensating for latency.
+const SPEED_ADJUSTMENT_INTERVAL = 1 * 1000; // How often to make micro speed adjustments
+const BUFFERING_AMNESTY_DURATION = 4 * 1000 * 60; // How often until a buffering event expires.
+const REQUIRED_BANDWIDTH_RATIO = 2.0; // The player:bitrate ratio required to enable compensating for latency.
+const HIGHEST_LATENCY_SEGMENT_LENGTH_MULTIPLIER = 2.2; // Segment length * this value is when we start compensating.
+const LOWEST_LATENCY_SEGMENT_LENGTH_MULTIPLIER = 1.7; // Segment length * this value is when we stop compensating.
+const MIN_LATENCY = 4 * 1000; // The absolute lowest we'll continue compensation to be running at.
+const MAX_LATENCY = 15 * 1000; // The absolute highest we'll allow a target latency to be before we start compensating.
+const MAX_JUMP_LATENCY = 5 * 1000; // How much behind the max latency we need to be behind before we allow a jump.
+const MAX_JUMP_FREQUENCY = 20 * 1000; // How often we'll allow a time jump.
+const MAX_ACTIONABLE_LATENCY = 90 * 1000; // If latency is seen to be greater than this then something is wrong.
+const STARTUP_WAIT_TIME = 20 * 1000; // The amount of time after we start up that we'll allow monitoring to occur.
+const MIN_BUFFER_HEALTH = 5; // Minimum seconds of healthy buffer before taking action
+const CONSECUTIVE_STABLE_CHECKS = 3; // How many stable checks before allowing speed changes
 
 class LatencyCompensator {
   constructor(player) {
@@ -66,11 +66,11 @@ class LatencyCompensator {
     this.startupTime = new Date();
     this.clockSkewMs = 0;
     this.currentLatency = null;
-    this.speedAdjustmentTimer = 0; // New - timer for smooth speed changes
-    this.consecutiveStableChecks = 0; // New - track stability
-    this.bandwidthHistory = []; // New - track bandwidth over time
-    this.playableBufferHistory = []; // New - track buffer health
-    this.lastSpeedChange = new Date(); // New - prevent too frequent changes
+    this.speedAdjustmentTimer = 0; // timer for smooth speed changes
+    this.consecutiveStableChecks = 0; // track stability
+    this.bandwidthHistory = []; // track bandwidth over time
+    this.playableBufferHistory = []; // track buffer health
+    this.lastSpeedChange = new Date(); // prevent too frequent changes
 
     // Keep track of all the latencies we encountered buffering events
     // in order to determine a new minimum latency.
@@ -103,7 +103,6 @@ class LatencyCompensator {
     this.clockSkewMs = skewMs;
   }
 
-  // New method - smooth speed adjustment for imperceptible changes
   smoothSpeedAdjustment() {
     if (!this.running || !this.enabled || this.inTimeout) {
       console.log("Skipping speed adjustment - not running or in timeout");
@@ -137,7 +136,6 @@ class LatencyCompensator {
     this.setPlaybackRate(newRate);
   }
 
-  // New method - get conservative bandwidth estimate
   getAverageBandwidth() {
     if (this.bandwidthHistory.length < 5) {
       return null;
@@ -148,7 +146,6 @@ class LatencyCompensator {
     return sorted[index];
   }
 
-  // New method - get average playable buffer
   getAveragePlayableBuffer() {
     if (this.playableBufferHistory.length === 0) {
       return 0;
@@ -159,7 +156,6 @@ class LatencyCompensator {
     );
   }
 
-  // New method - check if buffer is healthy and stable
   isBufferHealthy(playableBufferSeconds) {
     // Track buffer history
     this.playableBufferHistory.push(playableBufferSeconds);
