@@ -27,22 +27,25 @@ How to help with this? The Owncast Latency Compensator will:
   - Completely give up on all compensation if too many buffering events occur.
 */
 
-const REBUFFER_EVENT_LIMIT = 4; // Max number of buffering events before we stop compensating for latency.
-const MIN_BUFFER_DURATION = 200; // Min duration a buffer event must last to be counted.
-const MAX_SPEEDUP_RATE = 1.08; // The playback rate when compensating for latency.
-const MAX_SPEEDUP_RAMP = 0.02; // The max amount we will increase the playback rate at once.
-const TIMEOUT_DURATION = 30 * 1000; // The amount of time we stop handling latency after certain events.
-const CHECK_TIMER_INTERVAL = 3 * 1000; // How often we check if we should be compensating for latency.
-const BUFFERING_AMNESTY_DURATION = 3 * 1000 * 60; // How often until a buffering event expires.
-const REQUIRED_BANDWIDTH_RATIO = 1.8; // The player:bitrate ratio required to enable compensating for latency.
-const HIGHEST_LATENCY_SEGMENT_LENGTH_MULTIPLIER = 2.6; // Segment length * this value is when we start compensating.
-const LOWEST_LATENCY_SEGMENT_LENGTH_MULTIPLIER = 1.8; // Segment length * this value is when we stop compensating.
-const MIN_LATENCY = 4 * 1000; // The absolute lowest we'll continue compensation to be running at.
-const MAX_LATENCY = 15 * 1000; // The absolute highest we'll allow a target latency to be before we start compensating.
-const MAX_JUMP_LATENCY = 5 * 1000; // How much behind the max latency we need to be behind before we allow a jump.
-const MAX_JUMP_FREQUENCY = 20 * 1000; // How often we'll allow a time jump.
-const MAX_ACTIONABLE_LATENCY = 80 * 1000; // If latency is seen to be greater than this then something is wrong.
-const STARTUP_WAIT_TIME = 10 * 1000; // The amount of time after we start up that we'll allow monitoring to occur.
+const REBUFFER_EVENT_LIMIT = 4; // Reduced from 4 - Max number of buffering events before we stop compensating for latency.
+const MIN_BUFFER_DURATION = 200; // Reduced from 200 - Min duration a buffer event must last to be counted.
+const MAX_SPEEDUP_RATE = 1.08; // The max playback rate when compensating for latency.
+const MAX_SPEEDUP_RAMP = 0.005; // The max amount we will increase the playback rate at once.
+const TIMEOUT_DURATION = 30 * 1000; // Increased from 30s - The amount of time we stop handling latency after certain events.
+const CHECK_TIMER_INTERVAL = 3 * 1000; // Increased from 1s - How often we check if we should be compensating for latency.
+const SPEED_ADJUSTMENT_INTERVAL = 1 * 1000; // New - How often to make micro speed adjustments
+const BUFFERING_AMNESTY_DURATION = 4 * 1000 * 60; // Increased from 3min - How often until a buffering event expires.
+const REQUIRED_BANDWIDTH_RATIO = 2.0; // Increased from 1.5 - The player:bitrate ratio required to enable compensating for latency.
+const HIGHEST_LATENCY_SEGMENT_LENGTH_MULTIPLIER = 2.2; // Increased from 2.2 - Segment length * this value is when we start compensating.
+const LOWEST_LATENCY_SEGMENT_LENGTH_MULTIPLIER = 1.7; // Increased from 1.8 - Segment length * this value is when we stop compensating.
+const MIN_LATENCY = 4 * 1000; // Increased from 4s - The absolute lowest we'll continue compensation to be running at.
+const MAX_LATENCY = 15 * 1000; // Increased from 15s - The absolute highest we'll allow a target latency to be before we start compensating.
+const MAX_JUMP_LATENCY = 5 * 1000; // Increased from 5s - How much behind the max latency we need to be behind before we allow a jump.
+const MAX_JUMP_FREQUENCY = 20 * 1000; // Increased from 20s - How often we'll allow a time jump.
+const MAX_ACTIONABLE_LATENCY = 90 * 1000; // Increased from 80s - If latency is seen to be greater than this then something is wrong.
+const STARTUP_WAIT_TIME = 20 * 1000; // Increased from 10s - The amount of time after we start up that we'll allow monitoring to occur.
+const MIN_BUFFER_HEALTH = 5; // New - Minimum seconds of healthy buffer before taking action
+const CONSECUTIVE_STABLE_CHECKS = 3; // New - How many stable checks before allowing speed changes
 
 class LatencyCompensator {
   constructor(player) {
@@ -53,32 +56,42 @@ class LatencyCompensator {
     this.inTimeout = false;
     this.jumpingToLiveIgnoreBuffer = false;
     this.timeoutTimer = 0;
+    this.timeoutEndingAt = 0;
     this.checkTimer = 0;
     this.bufferingCounter = 0;
     this.bufferingTimer = 0;
     this.playbackRate = 1.0;
+    this.targetPlaybackRate = 1.0;
     this.lastJumpOccurred = null;
     this.startupTime = new Date();
     this.clockSkewMs = 0;
     this.currentLatency = null;
+    this.speedAdjustmentTimer = 0; // New - timer for smooth speed changes
+    this.consecutiveStableChecks = 0; // New - track stability
+    this.bandwidthHistory = []; // New - track bandwidth over time
+    this.playableBufferHistory = []; // New - track buffer health
+    this.lastSpeedChange = new Date(); // New - prevent too frequent changes
 
     // Keep track of all the latencies we encountered buffering events
     // in order to determine a new minimum latency.
     this.bufferedAtLatency = [];
 
-    this.player.on('playing', this.handlePlaying.bind(this));
-    this.player.on('pause', this.handlePause.bind(this));
-    this.player.on('error', this.handleError.bind(this));
-    this.player.on('waiting', this.handleBuffering.bind(this));
-    this.player.on('stalled', this.handleBuffering.bind(this));
-    this.player.on('ended', this.handleEnded.bind(this));
-    this.player.on('canplaythrough', this.handlePlaying.bind(this));
-    this.player.on('canplay', this.handlePlaying.bind(this));
+    this.player.on("playing", this.handlePlaying.bind(this));
+    this.player.on("pause", this.handlePause.bind(this));
+    this.player.on("error", this.handleError.bind(this));
+    this.player.on("waiting", this.handleBuffering.bind(this));
+    this.player.on("stalled", this.handleBuffering.bind(this));
+    this.player.on("ended", this.handleEnded.bind(this));
+    this.player.on("canplaythrough", this.handlePlaying.bind(this));
+    this.player.on("canplay", this.handlePlaying.bind(this));
+
+    this.onStats = null;
 
     this.check = this.check.bind(this);
     this.start = this.start.bind(this);
     this.enable = this.enable.bind(this);
     this.countBufferingEvent = this.countBufferingEvent.bind(this);
+    this.smoothSpeedAdjustment = this.smoothSpeedAdjustment.bind(this); // New
   }
 
   // To keep our client clock in sync with the server clock to determine
@@ -88,6 +101,88 @@ class LatencyCompensator {
   // decisions.
   setClockSkew(skewMs) {
     this.clockSkewMs = skewMs;
+  }
+
+  // New method - smooth speed adjustment for imperceptible changes
+  smoothSpeedAdjustment() {
+    if (!this.running || !this.enabled || this.inTimeout) {
+      console.log("Skipping speed adjustment - not running or in timeout");
+      this.setPlaybackRate(1.0);
+      this.reportStats(0, 0);
+      return;
+    }
+
+    const currentRate = this.playbackRate;
+    const targetRate = this.targetPlaybackRate;
+
+    // If we're close enough to target, set it exactly
+    if (Math.abs(currentRate - targetRate) < MAX_SPEEDUP_RAMP) {
+      this.setPlaybackRate(targetRate);
+      if (targetRate === 1.0) {
+        clearInterval(this.speedAdjustmentTimer);
+        this.speedAdjustmentTimer = 0;
+      }
+      return;
+    }
+
+    // Make micro adjustment toward target
+    let newRate;
+    if (currentRate < targetRate) {
+      newRate = Math.min(currentRate + MAX_SPEEDUP_RAMP, targetRate);
+    } else {
+      newRate = Math.max(currentRate - MAX_SPEEDUP_RAMP, targetRate);
+    }
+
+    console.log("Adjusting playback rate from", currentRate, "to", targetRate);
+    this.setPlaybackRate(newRate);
+  }
+
+  // New method - get conservative bandwidth estimate
+  getAverageBandwidth() {
+    if (this.bandwidthHistory.length < 5) {
+      return null;
+    }
+    // Use 30th percentile for conservative estimate
+    const sorted = [...this.bandwidthHistory].sort((a, b) => a - b);
+    const index = Math.floor(sorted.length * 0.3);
+    return sorted[index];
+  }
+
+  // New method - get average playable buffer
+  getAveragePlayableBuffer() {
+    if (this.playableBufferHistory.length === 0) {
+      return 0;
+    }
+    return (
+      this.playableBufferHistory.reduce((a, b) => a + b, 0) /
+      this.playableBufferHistory.length
+    );
+  }
+
+  // New method - check if buffer is healthy and stable
+  isBufferHealthy(playableBufferSeconds) {
+    // Track buffer history
+    this.playableBufferHistory.push(playableBufferSeconds);
+    if (this.playableBufferHistory.length > 10) {
+      this.playableBufferHistory.shift();
+    }
+
+    // Need minimum buffer
+    if (playableBufferSeconds < MIN_BUFFER_HEALTH) {
+      return false;
+    }
+
+    // Check if buffer is stable or growing
+    if (this.playableBufferHistory.length >= 3) {
+      const recent = this.playableBufferHistory.slice(-3);
+      const trend = recent[2] - recent[0];
+      if (trend < -2) {
+        // Buffer is shrinking rapidly
+        return false;
+      }
+    }
+
+    return true;
   }
 
   // This is run on a timer to check if we should be compensating for latency.
@@ -101,10 +196,12 @@ class LatencyCompensator {
 
     // If we're paused then do nothing.
     if (this.player.paused()) {
+      this.consecutiveStableChecks = 0;
       return;
     }
 
     if (this.player.seeking()) {
+      this.consecutiveStableChecks = 0;
       return;
     }
 
@@ -130,23 +227,9 @@ class LatencyCompensator {
     // download new segments.
     const networkState = this.player.networkState();
     if (networkState !== 2) {
+      this.consecutiveStableChecks = 0;
       return;
     }
-
-    let totalBuffered = 0;
-
-    try {
-      // Check the player buffers to make sure there's enough playable content
-      // that we can safely play.
-      if (tech.vhs.stats.buffered.length === 0) {
-        this.timeout();
-        return;
-      }
-
-      tech.vhs.stats.buffered.forEach((buffer) => {
-        totalBuffered += buffer.end - buffer.start;
-      });
-    } catch (e) {}
 
     // Determine how much of the current playlist's bandwidth requirements
     // we're utilizing. If it's too high then we can't afford to push
@@ -156,21 +239,46 @@ class LatencyCompensator {
     const playerBandwidth = tech.vhs.systemBandwidth;
     const bandwidthRatio = playerBandwidth / currentPlaylistBandwidth;
 
+    // Track bandwidth history
+    if (playerBandwidth > 0 && bandwidthRatio > 0) {
+      this.bandwidthHistory.push(bandwidthRatio);
+      if (this.bandwidthHistory.length > 10) {
+        this.bandwidthHistory.shift();
+      }
+    }
+
     try {
       const segment = getCurrentlyPlayingSegment(tech);
       if (!segment) {
         return;
       }
 
-      // If we're downloading media fast enough or we feel like we have a large
-      // enough buffer then continue. Otherwise timeout for a bit.
-      if (
-        bandwidthRatio < REQUIRED_BANDWIDTH_RATIO &&
-        totalBuffered < segment.duration * 6
-      ) {
+      // Get current playable buffer
+      const playableBufferSeconds =
+        this.player.buffered().end(0) - this.player.currentTime();
+
+      // Check buffer health
+      if (!this.isBufferHealthy(playableBufferSeconds)) {
+        this.consecutiveStableChecks = 0;
+        if (this.running) {
+          this.stop();
+          this.timeout();
+        }
+        return;
+      }
+
+      // Use average bandwidth for more stable decisions
+      const avgBandwidthRatio = this.getAverageBandwidth() || bandwidthRatio;
+
+      // If we're running low on playable video, then stop the compensator
+      // temporarily to allow the player to catch up.
+      if (playableBufferSeconds < 2) {
         this.timeout();
         return;
       }
+
+      // Track stability
+      this.consecutiveStableChecks++;
 
       // How far away from live edge do we stop the compensator.
       const computedMinLatencyThreshold = Math.max(
@@ -213,6 +321,8 @@ class LatencyCompensator {
       const latency = now - segmentTime;
       this.currentLatency = latency;
 
+      this.reportStats(minLatencyThreshold, maxLatencyThreshold);
+
       // Since the calculation of latency is based on clock times, it's possible
       // things can be reported incorrectly. So we use a sanity check here to
       // simply bail if the latency is reported to so high we think the whole
@@ -226,91 +336,114 @@ class LatencyCompensator {
       }
 
       if (latency > maxLatencyThreshold) {
-        // If the current latency exceeds the max jump amount then
-        // force jump into the future, skipping all the video in between.
+        // Only jump if we have excellent conditions
         if (
+          latency > maxLatencyThreshold + MAX_JUMP_LATENCY &&
           this.shouldJumpToLive() &&
-          latency > maxLatencyThreshold + MAX_JUMP_LATENCY
+          playableBufferSeconds > 10 &&
+          avgBandwidthRatio > REQUIRED_BANDWIDTH_RATIO &&
+          this.consecutiveStableChecks >= CONSECUTIVE_STABLE_CHECKS
         ) {
-          const jumpAmount = latency / 1000 - segment.duration * 3;
+          // More conservative jump amount
+          const jumpAmount = Math.min(
+            playableBufferSeconds * 0.5,
+            latency / 1000 - segment.duration * 5
+          );
           const seekPosition = this.player.currentTime() + jumpAmount;
           console.info(
-            'latency',
+            "latency",
             latency / 1000,
-            'jumping',
+            "jumping",
             jumpAmount,
-            'to live from ',
+            "to live from ",
             this.player.currentTime(),
-            ' to ',
+            " to ",
             seekPosition
           );
 
-          // Verify we have the seek position buffered before jumping.
-          const availableBufferedTimeEnd = tech.vhs.stats.buffered[0].end;
-          const availableBufferedTimeStart = tech.vhs.stats.buffered[0].start;
-          if (
-            seekPosition >
-            availableBufferedTimeStart <
-            availableBufferedTimeEnd
-          ) {
-            this.jump(seekPosition);
-
-            return;
-          }
+          this.jump(seekPosition);
+          return;
         }
 
-        // Using our bandwidth ratio determine a wide guess at how fast we can play.
-        var proposedPlaybackRate = bandwidthRatio * 0.33;
-
-        // But limit the playback rate to a max value.
-        proposedPlaybackRate = Math.max(
-          Math.min(proposedPlaybackRate, MAX_SPEEDUP_RATE),
-          1.0
-        );
-
-        if (proposedPlaybackRate > this.playbackRate + MAX_SPEEDUP_RAMP) {
-          // If this proposed speed is substantially faster than the current rate,
-          // then allow us to ramp up by using a slower value for now.
-          proposedPlaybackRate = this.playbackRate + MAX_SPEEDUP_RAMP;
+        // We must have at least one segment's worth of buffer available.
+        if (
+          playableBufferSeconds < segment.duration * 2 ||
+          avgBandwidthRatio < REQUIRED_BANDWIDTH_RATIO
+        ) {
+          this.timeout();
+          return;
         }
 
-        // Limit to 3 decimal places of precision.
-        proposedPlaybackRate =
-          Math.round(proposedPlaybackRate * Math.pow(10, 3)) / Math.pow(10, 3);
+        // Only adjust speed if we're stable and have been for a while
+        if (
+          this.consecutiveStableChecks >= CONSECUTIVE_STABLE_CHECKS &&
+          this.bufferingCounter === 0 &&
+          new Date() - this.lastSpeedChange > 10000 // 10 seconds between changes
+        ) {
+          // More conservative speed calculation
+          const avgPlayableBuffer = this.getAveragePlayableBuffer();
+          const proposedPlaybackRateFromPlayableBuffer =
+            1.0 + avgPlayableBuffer * 0.004; // Reduced from 0.008
+          const proposedPlaybackRateFromTransferSpeed = avgBandwidthRatio * 0.2; // Reduced from 0.33
 
-        // Otherwise start the playback rate adjustment.
-        this.start(proposedPlaybackRate);
+          var proposedPlaybackRate = Math.min(
+            proposedPlaybackRateFromPlayableBuffer,
+            proposedPlaybackRateFromTransferSpeed
+          );
+
+          // But limit the playback rate to a max value.
+          proposedPlaybackRate = Math.max(
+            Math.min(proposedPlaybackRate, MAX_SPEEDUP_RATE),
+            1.0
+          );
+
+          // Limit to 4 decimal places of precision.
+          proposedPlaybackRate =
+            Math.round(proposedPlaybackRate * Math.pow(10, 4)) /
+            Math.pow(10, 4);
+
+          // Set target and let smooth ramping handle it
+          this.start(proposedPlaybackRate);
+          this.lastSpeedChange = new Date();
+        }
       } else if (latency <= minLatencyThreshold) {
         this.stop();
       }
 
       console.info(
-        'latency',
+        "latency",
         latency / 1000,
-        'min',
+        "min",
         minLatencyThreshold / 1000,
-        'max',
+        "max",
         maxLatencyThreshold / 1000,
-        'playback rate',
+        "playable",
+        playableBufferSeconds,
+        "playback rate",
         this.playbackRate,
-        'enabled:',
+        "target rate",
+        this.targetPlaybackRate,
+        "enabled:",
         this.enabled,
-        'running: ',
+        "running: ",
         this.running,
-        'skew: ',
+        "skew: ",
         this.clockSkewMs,
-        'rebuffer events: ',
-        this.bufferingCounter
+        "rebuffer events: ",
+        this.bufferingCounter,
+        "stable checks:",
+        this.consecutiveStableChecks
       );
     } catch (err) {
-      // console.error(err);
+      console.trace(err);
     }
   }
 
   shouldJumpToLive() {
     // If we've been rebuffering some recently then don't make it worse by
     // jumping more into the future.
-    if (this.bufferingCounter > 1) {
+    if (this.bufferingCounter > 0) {
+      // Reduced from 1
       return false;
     }
 
@@ -324,40 +457,57 @@ class LatencyCompensator {
     this.performedInitialLiveJump = true;
 
     this.lastJumpOccurred = new Date();
+    this.consecutiveStableChecks = 0;
+
+    // Reset to normal speed when jumping
+    this.targetPlaybackRate = 1.0;
+    this.setPlaybackRate(1.0);
 
     console.info(
-      'current time',
+      "current time",
       this.player.currentTime(),
-      'seeking to',
+      "seeking to",
       seekPosition
     );
     this.player.currentTime(seekPosition);
 
     setTimeout(() => {
       this.jumpingToLiveIgnoreBuffer = false;
-    }, 5000);
+    }, 10000); // Increased from 5000
   }
 
   setPlaybackRate(rate) {
     this.playbackRate = rate;
     this.player.playbackRate(rate);
+    this.targetPlaybackRate = rate;
   }
 
   start(rate = 1.0) {
-    if (this.inTimeout || !this.enabled || rate === this.playbackRate) {
+    if (this.inTimeout || !this.enabled || rate === this.targetPlaybackRate) {
       return;
     }
 
     this.running = true;
-    this.setPlaybackRate(rate);
+    this.targetPlaybackRate = rate;
+    this.enableOnlyLowQualityPlayback();
+
+    // Start smooth adjustment timer if not running
+    if (!this.speedAdjustmentTimer) {
+      this.speedAdjustmentTimer = setInterval(
+        this.smoothSpeedAdjustment,
+        SPEED_ADJUSTMENT_INTERVAL
+      );
+    }
   }
 
   stop() {
     if (this.running) {
-      console.log('stopping latency compensator...');
+      console.log("stopping latency compensator...");
     }
     this.running = false;
-    this.setPlaybackRate(1.0);
+    this.targetPlaybackRate = 1.0;
+    this.enableAllQualityPlayback();
+    // Let smooth ramping bring us back to 1.0
   }
 
   enable() {
@@ -373,8 +523,10 @@ class LatencyCompensator {
   // Disable means we're done for good and should no longer compensate for latency.
   disable() {
     clearInterval(this.checkTimer);
+    clearInterval(this.speedAdjustmentTimer);
     clearTimeout(this.timeoutTimer);
     this.stop();
+    this.setPlaybackRate(1.0);
     this.enabled = false;
   }
 
@@ -385,16 +537,22 @@ class LatencyCompensator {
 
     this.inTimeout = true;
     this.stop();
+    this.consecutiveStableChecks = 0;
 
     clearTimeout(this.timeoutTimer);
     this.timeoutTimer = setTimeout(() => {
       this.endTimeout();
     }, TIMEOUT_DURATION);
+    if (this.timeoutEndingAt === 0) {
+      this.timeoutEndingAt = new Date().getTime() + TIMEOUT_DURATION;
+    }
+    this.reportStats(0, 0);
   }
 
   endTimeout() {
     clearTimeout(this.timeoutTimer);
     this.inTimeout = false;
+    this.timeoutEndingAt = 0;
   }
 
   handlePlaying() {
@@ -416,7 +574,7 @@ class LatencyCompensator {
     // If we were playing previously then that means we're probably coming back
     // from a rebuffering event, meaning we should not be adding more seeking
     // to the mix, just let it play.
-    if (!wasPreviouslyPlaying) {
+    if (!wasPreviouslyPlaying && this.performedInitialLiveJump) {
       this.jumpingToLiveIgnoreBuffer = true;
       this.player.liveTracker.seekToLiveEdge();
       this.lastJumpOccurred = new Date();
@@ -425,6 +583,7 @@ class LatencyCompensator {
 
   handlePause() {
     this.playing = false;
+    this.consecutiveStableChecks = 0;
   }
 
   handleEnded() {
@@ -445,6 +604,7 @@ class LatencyCompensator {
 
   countBufferingEvent() {
     this.bufferingCounter++;
+    this.consecutiveStableChecks = 0;
 
     if (this.bufferingCounter > REBUFFER_EVENT_LIMIT) {
       this.disable();
@@ -454,9 +614,9 @@ class LatencyCompensator {
     this.bufferedAtLatency.push(this.currentLatency);
 
     console.log(
-      'latency compensation timeout due to buffering:',
+      "latency compensation timeout due to buffering:",
       this.bufferingCounter,
-      'buffering events of',
+      "buffering events of",
       REBUFFER_EVENT_LIMIT
     );
 
@@ -464,18 +624,25 @@ class LatencyCompensator {
     setTimeout(() => {
       if (this.bufferingCounter > 0) {
         this.bufferingCounter--;
+        this.bufferedAtLatency.shift();
       }
     }, BUFFERING_AMNESTY_DURATION);
   }
 
   handleBuffering() {
-    if (!this.enabled || this.inTimeout) {
+    console.log("handleBuffering...");
+    if (new Date().getTime() - this.startupTime.getTime() < STARTUP_WAIT_TIME) {
       return;
     }
 
     if (this.jumpingToLiveIgnoreBuffer) {
-      this.jumpingToLiveIgnoreBuffer = false;
       return;
+    }
+
+    // Stop any speed adjustments immediately
+    if (this.running) {
+      this.targetPlaybackRate = 1.0;
+      this.setPlaybackRate(1.0);
     }
 
     this.timeout();
@@ -484,6 +651,36 @@ class LatencyCompensator {
     this.bufferingTimer = setTimeout(() => {
       this.countBufferingEvent();
     }, MIN_BUFFER_DURATION);
+  }
+
+  enableOnlyLowQualityPlayback() {}
+
+  enableAllQualityPlayback() {}
+
+  reportStats(minEndingLatency, maxStartingLatency) {
+    if (!this.onStats) {
+      return;
+    }
+
+    const stats = {
+      latency: this.currentLatency,
+      playbackRate: this.playbackRate,
+      targetPlaybackRate: this.player.playbackRate(),
+      enabled: this.enabled,
+      running: this.running,
+      bufferingEvents: this.bufferingCounter,
+      inTimeout: this.inTimeout,
+      timeoutRemaining: this.inTimeout
+        ? this.timeoutEndingAt - new Date().getTime()
+        : 0,
+      minEndingLatency: minEndingLatency,
+      maxStartingLatency: maxStartingLatency,
+      averageBufferSeconds: this.getAveragePlayableBuffer(), // Added
+      averageBandwidthRatio: this.getAverageBandwidth(), // Added
+      consecutiveStableChecks: this.consecutiveStableChecks, // Added
+    };
+
+    this.onStats(stats);
   }
 }
 
