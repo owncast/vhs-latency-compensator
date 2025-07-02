@@ -2,7 +2,7 @@
 
 ## Overview
 
-The Owncast Latency Compensator is a JavaScript module designed to keep HLS video streams using [VideoJS](https://videojs.com/) [VHS](https://github.com/videojs/http-streaming). It is not compatible with device-native HLS playback such as Safari. It aims to stay as close to the live edge as possible without causing buffering or playback issues. It works by intelligently adjusting playback speed and, when necessary, jumping forward in the stream to reduce latency between the viewer and the live broadcast.
+The Owncast Latency Compensator is a JavaScript module designed to keep HLS video streams using [VideoJS](https://videojs.com/) [VHS](https://github.com/videojs/http-streaming) to have as low latency as possible given the network conditions for the player. It is not compatible with device-native HLS playback such as Safari. It aims to stay as close to the live edge as possible without causing buffering or playback issues. It works by intelligently adjusting playback speed and, when necessary, jumping forward in the stream to reduce latency between the viewer and the live broadcast.
 
 ## How It Works
 
