@@ -1,0 +1,38 @@
+[
+    {
+        "name": "Owncast Demo Server",
+        "uri": "https://watch.owncast.online/hls/stream.m3u8",
+        "mimetype": "application/x-mpegurl",
+        "features": []
+    },
+    {
+        "name": "hatniX Live Stream",
+        "uri": "https://live.hatnix.net/hls/stream.m3u8",
+        "mimetype": "application/x-mpegurl",
+        "features": []
+    },
+    {
+        "name": "RetroStrange TV",
+        "uri": "https://live.retrostrange.com/hls/stream.m3u8",
+        "mimetype": "application/x-mpegurl",
+        "features": []
+    },
+    {
+        "name": "OtherTV",
+        "uri": "https://othertv.stream/hls/stream.m3u8",
+        "mimetype": "application/x-mpegurl",
+        "features": []
+    },
+    {
+        "name": "Le fractal en direct",
+        "uri": "https://direct.disquette.top/hls/stream.m3u8",
+        "mimetype": "application/x-mpegurl",
+        "features": []
+    },
+    {
+        "name": "24hr K-Pop",
+        "uri": "https://live.24hrkpop.com/hls/stream.m3u8",
+        "mimetype": "application/x-mpegurl",
+        "features": []
+    }
+]

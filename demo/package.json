@@ -1,0 +1,21 @@
+{
+  "name": "vhs-latency-compensator-demo",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "preinstall": "cp ../latencyCompensator.js ./scripts/latencyCompensator.js",
+    "start": "python3 -m http.server 8080"
+  },
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@videojs/http-streaming": "^2.14.3",
+    "bootstrap": "^5.2.1",
+    "video.js": "^7.20.2",
+    "videojs": "^1.0.0",
+    "videojs-contrib-eme": "^5.0.1",
+    "videojs-http-source-selector": "^1.1.6"
+  }
+}
