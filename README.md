@@ -10,8 +10,9 @@ The Owncast Latency Compensator is a JavaScript module designed to keep HLS vide
 
 In live streaming, viewers are always slightly behind the actual live broadcast. This delay (latency) occurs due to:
 
-1. **Server-side delays**: The time it takes to encode and package video segments
-2. **Client-side delays**: Natural stutters in playback, processing delays, and network hiccups that compound over time
+1. **Server-side delays**: The time it takes to encode and package video segments. This is generally a static amount of time and won't increase or decrease during a stream.
+2. **Client-side delays**: Natural stutters in playback, processing delays, and network hiccups that compound over time. This can increase and decrease over time during playback for a number of reasons. They are generally not visible.
+3. **Buffering**: Any time you buffer, playback stops and you will be behind live an additional amount the time you buffered. This is the largest reason for large amounts of latency. If your stream is configured in a way that causes a viewer to buffer, you've already lost the latency game and need to go back to reconfiguring your stream.
 
 Without intervention, this latency can grow from a few seconds to many seconds or even minutes, making the viewing experience feel less "live."
 
