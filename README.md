@@ -108,3 +108,52 @@ This is an early attempt a the above approaches to reduce latency for live playb
 ## Contributions
 
 Since, in theory, this small library is helpful to anybody using VideoJS's HTTP Streaming, if we all band together we should be able to work out bugs and improving this so all of us have something that helps us with our respective projects.
+
+## Diagram
+
+Follow the chart to see how the different decisions are made.
+
+```mermaid
+flowchart TD
+    A[Latency Occurs] --> B[User behind live edge]
+    B --> C[Compensator Enabled]
+    C --> D[Wait startup period]
+    D --> E[Begin Monitoring]
+
+    E --> F{Paused or Timeout?}
+    F -- Yes --> G[Do Nothing]
+    F -- No --> H[Check Network State and Bandwidth]
+
+    H --> I{Network OK?}
+    I -- No --> G
+    I -- Yes --> J[Check Buffer Health]
+
+    J --> K{Buffer Healthy?}
+    K -- No --> L[Stop Compensator and Timeout]
+    K -- Yes --> M[Calculate Latency]
+
+    M --> N{High Latency?}
+    N -- No --> O{Low Latency?}
+    O -- Yes --> P[Stop Compensator]
+    O -- No --> Q[Keep Monitoring]
+    N -- Yes --> R{Can Jump to Live?}
+
+    R -- Yes --> S[Jump Forward]
+    R -- No --> T{Buffer and Bandwidth OK?}
+    T -- No --> L
+    T -- Yes --> U[Speed Up Playback]
+    U --> Q
+
+    S --> Q
+
+    L --> W[Timeout Active]
+    W --> X[Wait and Resume Monitoring]
+
+    subgraph Buffering Handling
+      Y[Buffering Event]
+      Y --> Z[Increase Buffer Counter]
+      Z --> AA{Counter Limit?}
+      AA -- Yes --> AB[Disable Compensator]
+      AA -- No --> AC[Start Timeout]
+    end
+```
